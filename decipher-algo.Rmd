@@ -1,0 +1,168 @@
+---
+title: "decipher-algo"
+author: "Hugo Englund (rickyhugo)"
+date: "9/9/2021"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+---
+title: 'Decipher Encrypted Messages'
+output: github_document
+---
+#### *Coded by Hugo Englund [(rickyhugo@github)](https://github.com/rickyhugo)*
+
+## Introduction
+In this notebook, I will perform a simple variation of Markov Chain Monte Carlo (MCMC) simulation to decipher a hidden message -- a substitution cipher. Since the natural language is assumed to follow certain rules and patterns, e.g., the probability of the letter 'b' to precede 'a' is greater than the one for 'x'. Hence, a sequence of letters, a sentence, should satisfy the first order Markov properties. Therefore, for a substitution cipher, we would like to find the unknown function, the key, $f$, such that $$f: \{\text{code space}\} \longrightarrow \{\text{usual alphabet}\}.$$ With this assumption and with inspiration from the ideas presented in [The Markov Chain Monte Carlo Revolution](https://statweb.stanford.edu/~cgates/PERSI/papers/MCMCRev.pdf), I have successfully deciphered a hidden message from my university lecturer. 
+
+
+### Fecth transition matrix
+Firstly, we have to fetch the transition probability matrix. Usually, one have to estimate this from scratch, but my lecturer had estimated this matrix for the particular message he handed out.
+```{r}
+# fetch and format transition matrix
+trans = read.table('tran_prob.txt')
+colnames(trans) = c(toupper(letters), " ")
+rownames(trans) = c(toupper(letters), " ")
+head(trans)
+```
+
+Just for fun, we can visualize the transition matrix to get a grasp of what we are working with.
+```{r}
+library(ggplot2)
+library(reshape2)
+
+# convert transition matrix from wide to long format (required for ggplot2)
+trans_l = melt(as.matrix(trans))
+
+ggplot(trans_l, aes(Var2, Var1)) + 
+    geom_tile(aes(fill=value)) +
+    scale_fill_gradient(low="white", high="brown", limits=c(0,1)) +
+    labs(x="Conditional second letter", y="Initial letter", fill="Probability") +
+    scale_y_discrete(limits = rev(levels(trans_l$Var1))) +
+    coord_equal()
+```
+
+### Log-likelihood calculation
+Moving on, we need to keep track of the likelihood for the different keys that will be generated. Since we work with quite small probabilities, I decided to us the log-likelihood. This simplifies our calculations and can also prevent zero division errors.
+```{r}
+loglik = function(trans, txt) {
+    # compute log-likelihood given transition probabilities
+    dim = nchar(txt) - 1
+    res = vector(mode="double", length=dim)
+    for (i in 1:dim) {
+        idx = strsplit(substring(txt, i, i+1), split="")[[1]]
+        res[i] = log(trans[idx[1], idx[2]])
+    }
+    return(sum(res))
+}
+```
+
+### Text decoding
+Next, we need to "decode" the cipher as we generate new keys in order to compute the log-likelihood and compare to the previous key.
+```{r}
+transform_txt = function(base_key, key, txt) {
+    # deciphers text with the current key
+    transformed = txt
+    for (i in 1:nchar(txt)) {
+        substring(transformed, i, i) = base_key[key==substring(txt, i, i)]
+    }
+    return(transformed)
+}
+```
+
+### Decipher algorithm
+Now, we are able to compute the log-likelihood and to "decode" ciphers. Then, we can implement the simple algorithm:
+
+1. Start with a preliminary guess, say $f_0$.
+2. Compute the log-likelihood, $\mathcal{L}(f_0)$.
+3. For $t = 1,2,3,\ldots$, change to $f_t$ by making a random transposition of the values $f_{t-1}$ assigns to two symbols, i.e., switch places of two letters in the current key.
+4. Compute $\mathcal{L}(f_t)$; If this is greater than $\mathcal{L}(f_{t-1})$, accept $f_t$.
+5. If not, generate a $u \sim Bernoulli\left(\frac{\mathcal{L}(f_t)}{\mathcal{L}(f_{t-1})}\right)$. If $u = 1$, go on with $f_t$, otherwise keep $f_{t-1}$.
+
+We do the fifth step to prevent getting stuck in a local maxima and then miss the optimal key. 
+Let's code a little!
+
+        
+```{r}
+decipher = function(txt, trans, iter_lim=1e4, verbosity=500) {
+    # base key for text transformation
+    base_key = c(LETTERS, " ")
+    
+    # initial key
+    init_key = base_key[sample(1:27)]
+    init_txt = transform_txt(base_key, init_key, txt)
+    init_loglik = loglik(trans, init_txt)
+    
+    prev_key = init_key
+    prev_loglik = init_loglik
+    
+    # init counters
+    max_loglik = -1e5
+    iter = 0
+    suc_cnt = 0
+    while (iter <= iter_lim) {
+        # next key - randomly switch two letters
+        idx = sample(1:length(base_key), 2)
+        next_key = replace(prev_key, idx, prev_key[c(idx[2], idx[1])])
+        next_txt = transform_txt(base_key, next_key, txt)
+        next_loglik = loglik(trans, next_txt)
+        
+        # compare to previous key
+        if (next_loglik > prev_loglik) {
+            # update when improved
+            prev_loglik = next_loglik
+            prev_key = next_key
+        } else {
+            p = exp(next_loglik - prev_loglik)
+            if (rbinom(1, 1, p) == 1) {
+                # update randomly
+                prev_loglik = next_loglik
+                prev_key = next_key
+            }
+        }
+        
+        # check for improvements
+        if (next_loglik > max_loglik) {
+            suc_cnt = suc_cnt + 1
+            max_loglik = next_loglik
+            max_txt = next_txt
+            max_iter = iter
+            max_improve = suc_cnt
+        }
+        
+        # print current state
+        if (iter %% verbosity == 0) {
+            cat(
+                "Iteration:", iter, "\n",
+                "Succesful changes:", suc_cnt, "\n\n",
+                "Message:\n", next_txt, "\n\n",
+                "Current log-likelihood:", next_loglik, "\n",
+                "Previous log-likelihood:", prev_loglik, "\n",
+                "Maximum log-likelihood:", max_loglik, "\n",
+                "----------------------------------------------------\n\n"
+            )
+        }
+        # update total iterations
+        iter = iter + 1
+    }
+    # print "optimal" state
+    cat(
+        "Obtained after iteration:", max_iter, "\n",
+        "Succesful changes:", max_improve, "\n\n",
+        "Deciphred message:\n", max_txt, "\n\n", 
+        "Maximum log-likelihood:", max_loglik
+    )
+}
+```
+
+### Time to dechiper!
+Let's find out what the hidden message really is!
+```{r}
+set.seed(20210909) # for reproducibility 
+msg = "empenftpenjcjeumdfsmjbmusnmerbsmbsptnfjuhmsimemkstnmdjrrmutltvmgtmemcspkrtntmpenftpenjcjeumysmws mxusdmdfjcfmpenftpenjcjeumrtinmnfjbmieps bma sntmisvm bmkrtebtmbtuymws vmeubdtvmdjnfmws vmvmcsytbmgecxmnsmptmebmbssumebmksbbjgrtmnftmijvbnmsutmdjrrmdjumemivttmr ucf"
+
+decipher(toupper(msg), trans)
+```
