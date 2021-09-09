@@ -80,7 +80,7 @@ Now, we are able to compute the log-likelihood and to "decode" ciphers. Then, we
 2. Compute the log-likelihood, $\mathcal{L}(f_0)$.
 3. For $t = 1,2,3,\ldots$, change to $f_t$ by making a random transposition of the values $f_{t-1}$ assigns to two symbols, i.e., switch places of two letters in the current key.
 4. Compute $\mathcal{L}(f_t)$; If this is greater than $\mathcal{L}(f_{t-1})$, accept $f_t$.
-5. If not, generate a $u \sim Bin\left(1, \frac{\mathcal{L}(f_t)}{\mathcal{L}(f_{t-1})}\right)$. If $u = 1$, go on with $f_t$, otherwise keep $f_{t-1}$.
+5. If not, generate a Bernoulli random number, $u$, with probability $\mathcal{L}(f_t)/ \mathcal{L}(f_{t-1})$. If $u = 1$, we go on with $f_t$. Otherwise, keep $f_{t-1}$.
 
 We do the fifth step to prevent getting stuck in a local maxima and then miss the optimal key. 
 Let's code a little!

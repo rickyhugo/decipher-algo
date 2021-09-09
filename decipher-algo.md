@@ -140,10 +140,9 @@ Then, we can implement the simple algorithm:
     symbols, i.e., switch places of two letters in the current key.
 4.  Compute ℒ(*f*<sub>*t*</sub>); If this is greater than
     ℒ(*f*<sub>*t* − 1</sub>), accept *f*<sub>*t*</sub>.
-5.  If not, generate a
-    $u \\sim Bernoulli\\left(\\frac{\\mathcal{L}(f\_t)}{\\mathcal{L}(f\_{t-1})}\\right)$.
-    If *u* = 1, go on with *f*<sub>*t*</sub>, otherwise keep
-    *f*<sub>*t* − 1</sub>.
+5.  If not, generate a Bernoulli random number, *u*, with probability
+    ℒ(*f*<sub>*t*</sub>)/ℒ(*f*<sub>*t* − 1</sub>). If *u* = 1, we go on
+    with *f*<sub>*t*</sub>. Otherwise, keep *f*<sub>*t* − 1</sub>.
 
 We do the fifth step to prevent getting stuck in a local maxima and then
 miss the optimal key. Let’s code a little!
